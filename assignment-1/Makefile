@@ -31,7 +31,7 @@ OBS_LEGAL_RESULT ?= artifacts/part3-legal-moves-$(MODEL_TAG)-result.json
 
 setup:
 	uv sync
-	git submodule update --init
+# 	git submodule update --init
 	$(MAKE) verify-sources
 
 doctor:
