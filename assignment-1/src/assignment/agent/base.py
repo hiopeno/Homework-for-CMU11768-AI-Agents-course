@@ -16,6 +16,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 from openai import OpenAI
+import yaml
 
 from assignment.env import Environment
 from assignment.agent.tools import INVOKE_SKILL_TOOL
@@ -141,6 +142,8 @@ class Agent:
         self.tools: list[dict[str, Any]] = []
         self.finished = False
         self.steps_taken = 0
+        # 下列是我自己设计的字段
+        self.interaction_history :list[dict[str, Any]] = []
 
         self.skills_path = Path(skills_path) if skills_path is not None else None
         self.skills: dict[str, dict[str, str]] = (
@@ -164,7 +167,56 @@ class Agent:
         # ``content`` of the skill file for ``invoke_skill``. Reject duplicate
         # names and malformed or missing frontmatter with a clear
         # ``ValueError``.
-        raise NotImplementedError
+        if not skills_path.exists():
+            raise ValueError(f"skills_path does not exist: {skills_path}")
+        if not skills_path.is_dir():
+            raise ValueError(f"skills_path is not a directory: {skills_path}")
+
+        skills: dict[str, dict[str, str]] = {}
+        for skill_dir in sorted(skills_path.iterdir()):
+            if not skill_dir.is_dir():
+                continue
+            skill_file = skill_dir / "SKILL.md"
+            if not skill_file.is_file():
+                raise ValueError(f"missing SKILL.md in skill directory: {skill_dir}")
+
+            content = skill_file.read_text(encoding="utf-8")
+            lines = content.splitlines()
+            if not lines or lines[0].strip() != "---":
+                raise ValueError(f"missing YAML frontmatter in {skill_file}")
+            try:
+                closing_index = next(
+                    index for index, line in enumerate(lines[1:], start=1)
+                    if line.strip() == "---"
+                )
+            except StopIteration as exc:
+                raise ValueError(f"unterminated YAML frontmatter in {skill_file}") from exc
+
+            try:
+                frontmatter = yaml.safe_load("\n".join(lines[1:closing_index]))
+            except yaml.YAMLError as exc:
+                raise ValueError(f"malformed YAML frontmatter in {skill_file}: {exc}") from exc
+            if not isinstance(frontmatter, dict):
+                raise ValueError(f"frontmatter must be a mapping in {skill_file}")
+
+            name = frontmatter.get("name")
+            description = frontmatter.get("description")
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError(f"frontmatter name must be a non-empty string in {skill_file}")
+            if not isinstance(description, str) or not description.strip():
+                raise ValueError(
+                    f"frontmatter description must be a non-empty string in {skill_file}"
+                )
+            name = name.strip()
+            if name in skills:
+                raise ValueError(f"duplicate skill name {name!r} in {skill_file}")
+
+            skills[name] = {
+                "metadata": f"name: {name}\ndescription: {description.strip()}",
+                "content": content,
+            }
+
+        return skills
 
     def query_language_model(self) -> dict[str, Any]:
         """Send one tool-enabled Chat Completions request and normalize it."""
@@ -227,8 +279,11 @@ class Agent:
 
         # You want to be careful about which attributes of the class you modify
         # here as they may also be handled by the subclasses.
-        raise NotImplementedError
-
+        return [
+            {"role":"system","content":self.system_prompt},
+            {"role":"user","content":self.task_prompt},
+            *self.interaction_history,
+        ]
     def estimate_active_prompt_tokens(self) -> int:
         """Estimate the next prompt, calibrated by the provider's latest usage."""
 
@@ -265,10 +320,52 @@ class Agent:
         # with all linked tool observations. The resulting summary should change
         # what `build_prompt` emits, and reduce the length of the prompt.
 
-        raise NotImplementedError
+        current_prompt = self.build_prompt()
+        assistant_positions = [
+            index
+            for index, message in enumerate(current_prompt)
+            if message.get("role") == "assistant"
+        ]
+        keep_count = self.compaction_keep_recent_steps
+        keep_from = (
+            assistant_positions[-keep_count]
+            if len(assistant_positions) >= keep_count
+            else len(current_prompt)
+        )
+        old_messages = current_prompt[2:keep_from]
 
-        compaction_prompt = []
-
+        compaction_prompt = [
+            {
+                "role": "system",
+                "content": (
+                    "You maintain concise factual working memory for a software "
+                    "agent. Summarize only the old interaction history provided "
+                    "below. Preserve concrete progress, constraints, files, "
+                    "commands, edits, results, failures, tests, blockers, and "
+                    "the next action. Do not invent facts, repeat raw terminal "
+                    "output, or include the original system/task instructions in "
+                    "the summary. Return only the working-memory summary as plain "
+                    "text."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "The original system and task messages are included for context "
+                    "and must remain unchanged in the agent prompt. Summarize only "
+                    "the old messages below; the most recent complete assistant "
+                    "action and its linked tool observations will be retained "
+                    "verbatim outside this request.\n\n"
+                    "<original_messages>\n"
+                    f"{json.dumps(current_prompt[:2], ensure_ascii=False, indent=2)}\n"
+                    "</original_messages>\n\n"
+                    "<old_interaction_history>\n"
+                    f"{json.dumps(old_messages, ensure_ascii=False, indent=2)}\n"
+                    "</old_interaction_history>"
+                ),
+            },
+        ]
+        
         ### Do not modify this section ###
         compaction_response = self.client.chat.completions.create(
             model=self.model,
@@ -278,6 +375,18 @@ class Agent:
         )
         ##################################
 
+        summary = compaction_response.choices[0].message.content
+        if not isinstance(summary, str) or not summary.strip():
+            raise RuntimeError("compaction model returned an empty summary")
+        recent_messages = current_prompt[keep_from:]
+        self.interaction_history = [
+            {
+                "role": "user",
+                "content": f"<working_memory>\n{summary.strip()}\n</working_memory>",
+            },
+            *recent_messages,
+        ]
+        
         # Use `compaction_response` to update what `build_prompt` emits, but
         # DO NOT modify the object itself. Let the method return it unchanged.
 
@@ -330,13 +439,26 @@ class Agent:
             # step. Ensure you identify when the agent has completed the task
             # by setting `Agent.finished`. If the agent exceeds the
             # `step_limit`, raise `StepLimitError`.
+            while not self.finished:
+                if self.steps_taken >= self.step_limit:
+                    raise StepLimitError(
+                        f"Agent exceeded step limit of {self.step_limit}"
+                )
+
+                self.maybe_compact_context()
+
+                assistant_message = self.query_language_model()# 模型推理和行动请求
+                self.interaction_history.append(assistant_message)
+                tool_calls = assistant_message.get("tool_calls", [])
+
+                tool_messages = self.execute_tool_calls(tool_calls)# 执行动作并获取观察
+                self.interaction_history.extend(tool_messages)
 
             # TODO(2.2) Call `maybe_compact_context()` before each new action
             # request in your shared loop. It already estimates active tokens
             # and handles the threshold, and tracks compaction events for
             # logging.
 
-            raise NotImplementedError
         finally:
             # This block is provided infrastructure. Do not modify it: a
             # trajectory is required even when a run fails.
