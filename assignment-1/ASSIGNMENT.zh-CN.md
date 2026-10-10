@@ -43,10 +43,10 @@ cp .env.example .env
 ```dotenv
 OPENAI_BASE_URL=<OpenAI-compatible base URL>
 OPENAI_API_KEY=...
-OPENAI_MODEL=deepseek/deepseek-v4-flash-0731
+OPENAI_MODEL=deepseek-flash
 OPENAI_MAX_RETRIES=5
 ```
-默认使用上面所示的 DeepSeek-V4-Flash 模型。在明确要求时应使用其他模型。如果额度允许，也可以探索同一服务商的其他模型，但本作业预期使用此模型完成。
+默认使用上面所示的 deepseek-flash 模型。在明确要求时应使用其他模型。如果额度允许，也可以探索同一服务商的其他模型，但本作业预期使用此模型完成。
 
 我们将任何会使用 API 额度（Modal 或 LLM 服务商）的活动称为 _计费活动（billable）_。作业过程中会多次运行计费评估。建议监控相关控制台的用量，确保合理使用 API 额度。
 
@@ -163,7 +163,7 @@ description: Write "hello, world" to the terminal
 make run-code-agent
 make check-part1
 ```
-默认模型为 `deepseek/deepseek-v4-flash-0731`。agent 会接收 `tasks/chess-terminal-move/problem_statement.md`，在 `/testbed` 中工作，并且必须复现、修复和验证失败。一次运行会生成：
+默认模型为 `deepseek-flash`。agent 会接收 `tasks/chess-terminal-move/problem_statement.md`，在 `/testbed` 中工作，并且必须复现、修复和验证失败。一次运行会生成：
 
 - `artifacts/fix.patch`
 - `artifacts/part1-trajectory.json`

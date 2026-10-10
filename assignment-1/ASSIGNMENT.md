@@ -44,10 +44,10 @@ to create the file that contains your environment secrets – primarily LLM API 
 ```dotenv
 OPENAI_BASE_URL=<OpenAI-compatible base URL>
 OPENAI_API_KEY=...
-OPENAI_MODEL=deepseek/deepseek-v4-flash-0731
+OPENAI_MODEL=deepseek-flash
 OPENAI_MAX_RETRIES=5
 ```
-By default, you will use the DeepSeek-V4-Flash model, as you can see above. When indicated, you should use another model. Feel free to explore other models from the same provider if credits permit, but we intend the assignment to be solved with this model.
+By default, you will use the deepseek-flash model, as you can see above. When indicated, you should use another model. Feel free to explore other models from the same provider if credits permit, but we intend the assignment to be solved with this model.
 
 We will refer to any activity that will use API credits (from Modal, or the LLM provider) as _billable_. You will run billable evaluations throughout the assignment. We recommend monitoring your use on relevant dashboards to ensure you make good use of the API credits.
 
@@ -164,7 +164,7 @@ make run-code-agent
 make check-part1
 ```
 
-The default model is `deepseek/deepseek-v4-flash-0731`. The agent receives `tasks/chess-terminal-move/problem_statement.md`, works inside `/testbed`, and must reproduce, fix, and verify the failure. A run produces:
+The default model is `deepseek-flash`. The agent receives `tasks/chess-terminal-move/problem_statement.md`, works inside `/testbed`, and must reproduce, fix, and verify the failure. A run produces:
 
 - `artifacts/fix.patch`
 - `artifacts/part1-trajectory.json`
