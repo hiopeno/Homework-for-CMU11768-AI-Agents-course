@@ -5,3 +5,7 @@
 # 忽略作业自带的评测沙盒仓库（避免 Git 嵌套冲突）
 **/chess_app/
 assignment-1/chess_app/
+
+# 保留轨迹查看脚本；其余 artifacts 是每次运行生成的补丁、轨迹和报告。
+assignment-1/artifacts/*
+!assignment-1/artifacts/trajectory_js2md.sh
