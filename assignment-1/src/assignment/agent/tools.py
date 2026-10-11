@@ -133,10 +133,92 @@ INVOKE_SKILL_TOOL = {
 # TODO(3.1.a): Define an OpenAI function-tool schema named ``play_move``.
 # It must accept exactly one required string argument named ``move``, explain
 # that moves use UCI notation (for example e2e4), and reject extra arguments.
-PLAY_MOVE_TOOL: dict = {}
+PLAY_MOVE_TOOL: dict = {
+    "type": "function",
+    "function": {
+        "name": "play_move",
+        "description": (
+            "Play one legal move as White in the current chess game. The server "
+            "automatically plays Black's reply when the game does not end."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "move": {
+                    "type": "string",
+                    "description": (
+                        "The move in UCI notation, for example `e2e4`. Include a "
+                        "promotion piece suffix when needed, for example `e7e8q`."
+                    ),
+                },
+            },
+            "required": ["move"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 # TODO(3.3): Define the `simulate_move` tool, like the `play_move` tool.
-SIMULATE_MOVE_TOOL: dict = {}
+SIMULATE_MOVE_TOOL: dict = {
+    "type": "function",
+    "function": {
+        "name": "simulate_move",
+        "description": (
+            "Inspect a chess position or simulate exactly one legal UCI move "
+            "without changing the live game. Pass only a complete six-field "
+            "FEN to inspect its legal moves, or pass a move such as e2e4 to "
+            "inspect the resulting position."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "fen": {
+                    "type": "string",
+                    "description": (
+                        "A complete six-field Forsyth-Edwards Notation position."
+                    ),
+                },
+                "move": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Optional UCI move, such as e2e4 or e7e8q. Use null "
+                        "to inspect the supplied position without moving."
+                    ),
+                },
+            },
+            # Strict tool schemas require every declared property to be present;
+            # null is how the optional move is represented in a call.
+            "required": ["fen", "move"],
+            "additionalProperties": False,
+        },
+    },
+}
 
-# TODO()
-RUN_PYTHON_TOOL: dict = {}
+RUN_PYTHON_TOOL: dict = {
+    "type": "function",
+    "function": {
+        "name": "run_python",
+        "description": (
+            "Run a Python snippet inside the chess sandbox. The snippet can call "
+            "simulate_move(fen, move=None) to explore hypothetical positions and "
+            "play_move(move) to make one move on the live board."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": (
+                        "Python source code to execute in the sandbox. "
+                        "simulate_move and play_move are already available by name."
+                    ),
+                },
+            },
+            "required": ["code"],
+            "additionalProperties": False,
+        },
+    },
+}

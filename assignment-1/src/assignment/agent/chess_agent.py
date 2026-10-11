@@ -105,10 +105,10 @@ class ChessAgent(Agent):
             compaction_keep_recent_steps=compaction_keep_recent_steps,
             compaction_max_tokens=compaction_max_tokens,
         )
-
         # TODO(Part 3): Register the play_move tool schema from tools.py.
-
+        self.tools.append(PLAY_MOVE_TOOL)
         if programmatic_tools:
+            self.tools.append(SIMULATE_MOVE_TOOL)
             self.tools.append(RUN_PYTHON_TOOL)
 
         # run_python always executes in the sandbox, on the port the chess
@@ -177,4 +177,95 @@ class ChessAgent(Agent):
 
         # TODO(Part 3.3-4): add cases for simulate_move and run_python, with
         # linked observations and recoverable errors, just like the old tool.
-        raise NotImplementedError
+
+        output_list: list[dict[str, str]] = []
+        move_call_seen = False
+        registered_names = {
+            tool.get("function", {}).get("name")
+            for tool in self.tools
+            if isinstance(tool, dict) and isinstance(tool.get("function"), dict)
+        }
+
+        for call in tool_calls:
+            call_id = call.get("id", "") if isinstance(call, dict) else ""
+            content: str
+            try:
+                function = call.get("function", {}) if isinstance(call, dict) else {}
+                if not isinstance(function, dict):
+                    raise ValueError("tool function must be an object")
+
+                name = function.get("name")
+                arguments_text = function.get("arguments", "")
+
+                if name == PLAY_MOVE_TOOL["function"]["name"]:
+                    if move_call_seen:
+                        content = (
+                            "<chess_error>Only one play_move call may be executed "
+                            "per assistant response; this parallel call was rejected."
+                            "</chess_error>"
+                        )
+                    else:
+                        move_call_seen = True
+                        result = _play_move(self.chess_client, arguments_text)
+                        if result.startswith("<chess_error>"):
+                            content = result
+                        else:
+                            state = json.loads(result)
+                            if not isinstance(state, dict):
+                                raise ValueError("play_move returned a non-object state")
+                            self.last_state = state
+                            self.finished = bool(state.get("game_over"))
+                            content = self.format_state(state)
+                elif (
+                    name == SIMULATE_MOVE_TOOL["function"]["name"]
+                    and name in registered_names
+                ):
+                    result = _simulate_move(self.chess_client, arguments_text)
+                    if result.startswith("<chess_error>"):
+                        content = result
+                    else:
+                        state = json.loads(result)
+                        if not isinstance(state, dict):
+                            raise ValueError(
+                                "simulate_move returned a non-object state"
+                            )
+                        # Simulation is deliberately stateless: it must not
+                        # overwrite the live position or mark the game done.
+                        content = self.format_state(state)
+                elif (
+                    name == RUN_PYTHON_TOOL["function"]["name"]
+                    and name in registered_names
+                ):
+                    result = _run_python(
+                        self.env, self.python_sandbox_port, arguments_text
+                    )
+                    if result.startswith("<chess_error>"):
+                        content = result
+                    else:
+                        # A snippet may call play_move itself. Always re-read the
+                        # live board so subsequent prompts cannot act on stale
+                        # state, even when the snippet raised a Python exception.
+                        state = _game_state(self.chess_client)
+                        self.last_state = state
+                        self.finished = bool(state.get("game_over"))
+                        content = f"{result}\n\n{self.format_state(state)}"
+                elif (
+                    name == INVOKE_SKILL_TOOL["function"]["name"]
+                    and name in registered_names
+                ):
+                    content= _invoke_skill(self.skills,arguments_text)
+                else:
+                    content = f"<chess_error>Unknown tool: {name}</chess_error>"
+            except Exception as exc:
+                # All tool failures are observations so the agent can recover.
+                content = f"<chess_error>{type(exc).__name__}: {exc}</chess_error>"
+
+            output_list.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": content,
+                }
+            )
+
+        return output_list
