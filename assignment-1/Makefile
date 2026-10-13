@@ -17,8 +17,13 @@ SWEBENCH_PATCH ?= artifacts/$(INSTANCE).patch
 SWEBENCH_TRAJECTORY ?= artifacts/$(INSTANCE)-trajectory.json
 TRAJECTORY ?= artifacts/part3-trajectory.json
 RESULT ?= artifacts/game-result.json
-MODEL ?= deepseek-flash
-DEEPSEEK_MODEL ?= deepseek-flash
+# Load the same model configuration used by the Python code. Command-line
+# assignments such as `make ... MODEL=...` still take precedence over these
+# defaults. The leading '-' keeps make usable for targets that do not need an
+# inference model when .env has not been created yet.
+-include .env
+MODEL ?= $(OPENAI_MODEL)#MODEL ?= deepseek-flash
+DEEPSEEK_MODEL ?= $(OPENAI_MODEL)#DEEPSEEK_MODEL ?= deepseek-flash
 GPT_OSS_MODEL ?= openai/gpt-oss-120b
 MODEL_TAG ?= $(subst /,-,$(MODEL))
 COMPACT_THRESHOLD ?= 6000
